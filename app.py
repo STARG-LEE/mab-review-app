@@ -113,156 +113,120 @@ def save_review(sample_id, reviewer, verdict, feedback):
 
 # ─── Interactive Plotly graph ───
 def draw_record_plotly(record):
-    """Draw an interactive plotly graph: target in center, neighbors by category sector."""
+    """Clean interactive plotly graph: target center, neighbors clustered by category."""
     target = record['target']
     cats_present = [c for c in CATEGORY_ORDER if record['neighbors'].get(c)]
     n_cats = len(cats_present)
 
-    # Compute positions
+    # ── Layout: 각 카테고리별로 clear sector 할당, 노드는 그 안에서 정렬 ──
     pos = {target: (0.0, 0.0)}
-    node_meta = {target: {'cat': 'TARGET', 'label': target, 'freq': 0}}
+    meta = {target: {'cat': 'TARGET', 'label': target}}
 
-    R_INNER = 1.0   # inner ring for category labels
-    R_NODES = 2.2   # radius for nodes
+    R_CLUSTER = 3.2
+    CLUSTER_RADIUS = 1.1
 
     for c_idx, cat in enumerate(cats_present):
         neighbors = record['neighbors'][cat]
-        # Category sector angular range
-        sector_start = 2 * math.pi * c_idx / n_cats - math.pi / 2
-        sector_end = 2 * math.pi * (c_idx + 1) / n_cats - math.pi / 2
-        sector_mid = (sector_start + sector_end) / 2
-        sector_width = (sector_end - sector_start) * 0.8
+        # Cluster center
+        cat_angle = 2 * math.pi * c_idx / n_cats - math.pi / 2
+        cx, cy = R_CLUSTER * math.cos(cat_angle), R_CLUSTER * math.sin(cat_angle)
 
         n = len(neighbors)
         for i, nb in enumerate(neighbors):
-            # Spread neighbors within sector
+            # Place around cluster center in small circle
             if n == 1:
-                angle = sector_mid
+                x, y = cx, cy
             else:
-                angle = sector_start + sector_width * (i + 0.5) / n + (sector_end - sector_start - sector_width) / 2
-            # Alternating radii to reduce overlap
-            r = R_NODES + (i % 3) * 0.3
-            x, y = r * math.cos(angle), r * math.sin(angle)
-            nid = f"{cat}::{nb['node']}"
+                a = 2 * math.pi * i / n
+                x = cx + CLUSTER_RADIUS * math.cos(a)
+                y = cy + CLUSTER_RADIUS * math.sin(a)
+            nid = f"{cat}::{i}::{nb['node']}"
             pos[nid] = (x, y)
-            node_meta[nid] = {
-                'cat': cat,
-                'label': nb['node'],
-                'rel': nb['relationship'],
-                'freq': nb['frequency'],
-                'papers': nb['num_papers'],
+            meta[nid] = {
+                'cat': cat, 'label': nb['node'], 'rel': nb['relationship'],
+                'freq': nb['frequency'], 'papers': nb['num_papers'],
             }
 
-    # Build edge traces (one per relation group to have distinct colors)
-    edge_traces = []
-    edge_groups = {'positive': [], 'negative': [], 'neutral': []}
-    for nid, meta in node_meta.items():
-        if nid == target:
-            continue
-        grp = RELATION_GROUP.get(meta.get('rel'), 'neutral')
-        edge_groups[grp].append((nid, meta))
-
-    group_styles = {
-        'positive': {'color': '#27AE60', 'name': '긍정적 효과 (stabilizes 등)'},
-        'negative': {'color': '#C0392B', 'name': '부정적 효과 (promotes, increases 등)'},
-        'neutral':  {'color': '#7F8C8D', 'name': '중립 관계 (modifies, correlates 등)'},
+    # ── Edges (grouped by relation polarity) ──
+    traces = []
+    grp_style = {
+        'positive': ('#27AE60', '긍정 효과 (stabilizes·inhibits·prevents·decreases·shields)'),
+        'negative': ('#C0392B', '부정 효과 (promotes·increases·induces·destabilizes 등)'),
+        'neutral':  ('#85929E', '중립 (modifies·correlates·binds·requires)'),
     }
-
-    for grp, edges in edge_groups.items():
-        if not edges:
-            continue
+    for grp, (color, name) in grp_style.items():
         xs, ys = [], []
-        hover_texts = []
-        for nid, meta in edges:
-            x0, y0 = pos[target]
+        for nid, m in meta.items():
+            if nid == target: continue
+            if RELATION_GROUP.get(m['rel'], 'neutral') != grp: continue
             x1, y1 = pos[nid]
-            xs += [x1, x0, None]
-            ys += [y1, y0, None]
-        edge_traces.append(go.Scatter(
-            x=xs, y=ys,
-            mode='lines',
-            line=dict(color=group_styles[grp]['color'], width=1.5),
-            hoverinfo='skip',
-            name=group_styles[grp]['name'],
-            showlegend=True,
-            opacity=0.55,
-        ))
+            xs += [x1, 0.0, None]
+            ys += [y1, 0.0, None]
+        if xs:
+            traces.append(go.Scatter(
+                x=xs, y=ys, mode='lines',
+                line=dict(color=color, width=1.8),
+                hoverinfo='skip', name=name, opacity=0.45,
+            ))
 
-    # Node traces (one per category + target)
-    traces = [*edge_traces]
-
-    # Target node
+    # ── Target node ──
     traces.append(go.Scatter(
-        x=[pos[target][0]], y=[pos[target][1]],
-        mode='markers+text',
-        marker=dict(size=55, color='#2C3E50', line=dict(color='#FCD434', width=3),
-                    symbol='circle'),
-        text=[target],
+        x=[0], y=[0], mode='markers+text',
+        marker=dict(size=68, color='#1B4F72', line=dict(color='#FCD434', width=4), symbol='circle'),
+        text=[f"<b>{target}</b>"],
         textposition='middle center',
-        textfont=dict(color='white', size=13, family='Arial Black'),
-        hovertext=[f"<b>TARGET</b><br>{target}"],
+        textfont=dict(color='#FFFFFF', size=13),
+        hovertext=[f"<b>🎯 TARGET</b><br>{target}"],
         hoverinfo='text',
-        name='🎯 Target',
-        showlegend=True,
+        name=f'🎯 {target}',
     ))
 
-    # Neighbor nodes per category
+    # ── Neighbor nodes per category ──
     for cat in cats_present:
-        cat_nodes = [(nid, m) for nid, m in node_meta.items() if m['cat'] == cat]
-        if not cat_nodes:
-            continue
-        xs, ys = [], []
-        labels = []
-        sizes = []
-        hover_texts = []
-        for nid, m in cat_nodes:
+        items = [(nid, m) for nid, m in meta.items() if m.get('cat') == cat and nid != target]
+        if not items: continue
+        xs, ys, labels, sizes, hovers = [], [], [], [], []
+        for nid, m in items:
             x, y = pos[nid]
             xs.append(x); ys.append(y)
-            labels.append(m['label'][:25])
-            # size proportional to sqrt(frequency)
-            size = 20 + 6 * math.sqrt(m['freq'])
-            sizes.append(min(size, 55))
-            hover_texts.append(
+            lab = m['label']
+            labels.append(lab if len(lab) <= 22 else lab[:20] + '…')
+            sizes.append(min(22 + 5 * math.sqrt(m['freq']), 50))
+            hovers.append(
                 f"<b>{m['label']}</b><br>"
-                f"카테고리: {cat}<br>"
-                f"관계: {m['rel']}<br>"
-                f"빈도: {m['freq']}<br>"
-                f"논문 수: {m['papers']}"
+                f"카테고리: <b>{cat}</b><br>"
+                f"관계: <b>{m['rel']}</b> → {target}<br>"
+                f"빈도: {m['freq']} | 논문: {m['papers']}편"
             )
         traces.append(go.Scatter(
-            x=xs, y=ys,
-            mode='markers+text',
-            marker=dict(
-                size=sizes, color=CATEGORY_COLORS[cat],
-                line=dict(color='white', width=2), symbol='circle',
-            ),
+            x=xs, y=ys, mode='markers+text',
+            marker=dict(size=sizes, color=CATEGORY_COLORS[cat],
+                        line=dict(color='white', width=2)),
             text=labels,
             textposition='bottom center',
-            textfont=dict(color='#2C3E50', size=10),
-            hovertext=hover_texts,
-            hoverinfo='text',
-            name=f'📌 {cat}',
-            showlegend=True,
+            textfont=dict(color='#1B2631', size=10, family='Arial'),
+            hovertext=hovers, hoverinfo='text',
+            name=f'● {cat}',
         ))
 
     fig = go.Figure(data=traces)
     fig.update_layout(
         showlegend=True,
         legend=dict(
-            orientation="v",
-            yanchor="top", y=1, xanchor="left", x=1.02,
-            bgcolor='rgba(255,255,255,0.8)',
-            bordercolor='#CCC', borderwidth=1,
-            font=dict(size=11),
+            orientation='v', yanchor='top', y=1, xanchor='left', x=1.02,
+            bgcolor='rgba(255,255,255,0.95)', bordercolor='#BDC3C7', borderwidth=1,
+            font=dict(size=10, color='#2C3E50'),
+            itemsizing='constant',
         ),
-        xaxis=dict(showgrid=False, zeroline=False, showticklabels=False, range=[-3.5, 3.5]),
-        yaxis=dict(showgrid=False, zeroline=False, showticklabels=False, range=[-3.5, 3.5],
-                   scaleanchor='x', scaleratio=1),
-        plot_bgcolor='#FAFAFA',
-        paper_bgcolor='white',
-        margin=dict(l=10, r=10, t=30, b=10),
-        height=620,
-        hovermode='closest',
+        xaxis=dict(showgrid=False, zeroline=False, showticklabels=False,
+                   range=[-5.2, 5.2]),
+        yaxis=dict(showgrid=False, zeroline=False, showticklabels=False,
+                   range=[-5.2, 5.2], scaleanchor='x', scaleratio=1),
+        plot_bgcolor='#FFFFFF',
+        paper_bgcolor='#FFFFFF',
+        margin=dict(l=10, r=10, t=20, b=10),
+        height=640, hovermode='closest',
+        font=dict(color='#2C3E50'),
     )
     return fig
 
