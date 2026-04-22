@@ -274,13 +274,47 @@ st.set_page_config(
     page_icon="🔬"
 )
 
-# Custom CSS
+# Custom CSS — 모든 커스텀 HTML 블록 가시성 보장 (light/dark 테마 모두)
 st.markdown("""
 <style>
     .stApp { max-width: 1400px; margin: auto; }
-    h1 { color: #1B4F72; border-bottom: 3px solid #2E86C1; padding-bottom: 10px; }
-    h2 { color: #2E86C1; }
+    h1 { color: #1B4F72 !important; border-bottom: 3px solid #2E86C1; padding-bottom: 10px; }
+    h2 { color: #2E86C1 !important; }
     .stButton > button { border-radius: 8px; font-weight: 600; }
+
+    /* Force dark text on all custom HTML content blocks (avoid white-on-white) */
+    .custom-block, .custom-block * {
+        color: #2C3E50 !important;
+    }
+    .custom-block pre, .custom-block code {
+        color: #2C3E50 !important;
+        background: transparent !important;
+    }
+    .custom-block small { color: #566573 !important; }
+    .custom-block b, .custom-block strong { color: #1B4F72 !important; }
+
+    /* Light-theme-safe expander content */
+    .streamlit-expanderContent {
+        background: #FFFFFF !important;
+    }
+    .streamlit-expanderContent, .streamlit-expanderContent * {
+        color: #2C3E50 !important;
+    }
+
+    /* Banner text always white (dark background) */
+    .banner, .banner * { color: #FFFFFF !important; }
+    .banner .highlight { color: #FCD434 !important; }
+
+    /* Nav (sample number) bar */
+    .nav-bar {
+        background: #EBF5FB !important;
+        color: #1B4F72 !important;
+        text-align: center;
+        font-weight: bold;
+        font-size: 18px;
+        padding: 8px;
+        border-radius: 6px;
+    }
 </style>
 """, unsafe_allow_html=True)
 
@@ -372,7 +406,7 @@ with col_prev:
         st.session_state['current_idx'] -= 1
         st.rerun()
 with col_info:
-    st.markdown(f"<div style='text-align:center;font-weight:bold;font-size:18px;padding:8px;background:#EBF5FB;border-radius:6px'>샘플 {st.session_state['current_idx']+1} / {len(df_view)}</div>", unsafe_allow_html=True)
+    st.markdown(f"<div class='nav-bar'>샘플 {st.session_state['current_idx']+1} / {len(df_view)}</div>", unsafe_allow_html=True)
 with col_next:
     if st.button("다음 ➡️", disabled=(st.session_state['current_idx'] >= len(df_view) - 1), use_container_width=True):
         st.session_state['current_idx'] += 1
@@ -385,9 +419,9 @@ st.divider()
 
 # Target banner
 st.markdown(f"""
-<div style='background:linear-gradient(135deg,#1B4F72,#2E86C1);color:white;padding:16px 24px;border-radius:10px;margin-bottom:16px;box-shadow:0 2px 8px rgba(0,0,0,0.1)'>
-    <h3 style='margin:0;color:white'>🎯 Target: <span style='color:#FCD434'>{record['target']}</span></h3>
-    <small style='opacity:0.9'>Subcategory: <b>{current_sample['target_subcat']}</b> &nbsp; | &nbsp; Sample ID: {current_sample['sample_id']}</small>
+<div class='banner' style='background:linear-gradient(135deg,#1B4F72,#2E86C1);padding:16px 24px;border-radius:10px;margin-bottom:16px;box-shadow:0 2px 8px rgba(0,0,0,0.1)'>
+    <h3 style='margin:0;color:#FFFFFF'>🎯 Target: <span class='highlight'>{record['target']}</span></h3>
+    <small>Subcategory: <b style='color:#FFFFFF'>{current_sample['target_subcat']}</b> &nbsp; | &nbsp; Sample ID: {current_sample['sample_id']}</small>
 </div>
 """, unsafe_allow_html=True)
 
@@ -405,18 +439,32 @@ with col_graph:
             if not neighbors:
                 continue
             color = CATEGORY_COLORS.get(cat, '#BDC3C7')
-            st.markdown(f"<div style='background:{color}20;padding:8px 12px;border-left:4px solid {color};margin:8px 0;border-radius:4px'><b>{cat}</b> ({len(neighbors)}개)</div>", unsafe_allow_html=True)
+            st.markdown(
+                f"<div class='custom-block' style='background:{color}33;padding:8px 12px;border-left:4px solid {color};margin:8px 0;border-radius:4px'>"
+                f"<b style='color:{color}'>{cat}</b> <span style='color:#2C3E50'>({len(neighbors)}개)</span></div>",
+                unsafe_allow_html=True
+            )
             for n in neighbors:
                 grp = RELATION_GROUP.get(n['relationship'], 'neutral')
                 rel_color = {'positive': '#27AE60', 'negative': '#C0392B', 'neutral': '#7F8C8D'}[grp]
-                st.markdown(f"""  • `{n['node']}` <span style='background:{rel_color}25;color:{rel_color};padding:2px 8px;border-radius:10px;font-size:12px;font-weight:600'>{n['relationship']}</span> → {record['target']}  <small style='color:#888'>(freq={n['frequency']}, papers={n['num_papers']})</small>""",
-                unsafe_allow_html=True)
+                st.markdown(
+                    f"<div class='custom-block' style='padding:4px 16px;font-size:14px'>"
+                    f"• <code style='background:#F4F6F7;color:#1B4F72;padding:1px 6px;border-radius:3px'>{n['node']}</code> "
+                    f"<span style='background:{rel_color};color:#FFFFFF;padding:2px 10px;border-radius:10px;font-size:12px;font-weight:700'>{n['relationship']}</span> "
+                    f"<span style='color:#2C3E50'>→ {record['target']}</span> "
+                    f"<small style='color:#7F8C8D'>(freq={n['frequency']}, papers={n['num_papers']})</small>"
+                    f"</div>",
+                    unsafe_allow_html=True
+                )
 
 with col_interp:
     st.subheader("🤖 GPT-5-mini 해석")
+    # HTML escape the interpretation text to avoid breaking layout
+    import html as _html
+    interp_escaped = _html.escape(current_sample['gpt_interpretation'])
     st.markdown(f"""
-    <div style='background:#F4F6F7;padding:18px;border-radius:8px;border-left:4px solid #3498DB;max-height:620px;overflow-y:auto'>
-        <pre style='white-space:pre-wrap;font-family:"Apple SD Gothic Neo","Malgun Gothic",sans-serif;font-size:14px;line-height:1.6;margin:0'>{current_sample['gpt_interpretation']}</pre>
+    <div class='custom-block' style='background:#FFFFFF;padding:18px;border-radius:8px;border:1px solid #D5DBDB;border-left:4px solid #3498DB;max-height:620px;overflow-y:auto;box-shadow:0 1px 3px rgba(0,0,0,0.05)'>
+        <pre style='white-space:pre-wrap;font-family:"Apple SD Gothic Neo","Malgun Gothic",sans-serif;font-size:14px;line-height:1.7;margin:0;color:#2C3E50 !important;background:transparent !important'>{interp_escaped}</pre>
     </div>
     """, unsafe_allow_html=True)
 
