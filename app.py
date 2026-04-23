@@ -112,44 +112,64 @@ def save_review(sample_id, reviewer, verdict, feedback):
 
 
 # ─── Interactive Plotly graph ───
+def _label_position_for_angle(angle_rad):
+    """Given angle from center (radians), return plotly textposition outward."""
+    # Normalize to [0, 2π)
+    a = angle_rad % (2 * math.pi)
+    deg = math.degrees(a)
+    # 8방향 라디얼 배치
+    if 337.5 <= deg or deg < 22.5:
+        return 'middle right'
+    elif 22.5 <= deg < 67.5:
+        return 'top right'
+    elif 67.5 <= deg < 112.5:
+        return 'top center'
+    elif 112.5 <= deg < 157.5:
+        return 'top left'
+    elif 157.5 <= deg < 202.5:
+        return 'middle left'
+    elif 202.5 <= deg < 247.5:
+        return 'bottom left'
+    elif 247.5 <= deg < 292.5:
+        return 'bottom center'
+    else:  # 292.5 ~ 337.5
+        return 'bottom right'
+
+
 def draw_record_plotly(record):
-    """Hub-and-spoke layout: target center, category hubs, neighbors around each hub."""
+    """Hub-and-spoke layout: target center, category hubs, neighbors around each hub.
+    Labels are placed radially outward to minimize overlap."""
     target = record['target']
     cats_present = [c for c in CATEGORY_ORDER if record['neighbors'].get(c)]
     n_cats = len(cats_present)
 
     # ── Layout calculation ──
-    # Use a wider x-axis because legend sits to the right
-    R_HUB = 3.5           # category hub radius
-    R_LEAF = 1.9          # leaf node radius around hub
+    # 카테고리 허브를 더 넓게 분산, 리프는 허브 주변에 좁게 클러스터링
+    R_HUB = 4.6           # 허브 반경 (기존 3.5 → 4.6)
+    R_LEAF_BASE = 2.0     # 허브→리프 기본 거리
+    R_LEAF_STAGGER = 0.7  # 리프 간 반지름 엇갈림 (0.7씩 차이)
+    FAN_DEG = 75          # 리프 부채꼴 각도 (좌우 75도씩, 기존 55도)
 
     hub_pos = {}
     leaf_pos = {}
     leaf_meta = {}
 
     for c_idx, cat in enumerate(cats_present):
-        # Hub position (evenly distributed on circle)
         hub_angle = 2 * math.pi * c_idx / n_cats - math.pi / 2
         hx, hy = R_HUB * math.cos(hub_angle), R_HUB * math.sin(hub_angle)
         hub_pos[cat] = (hx, hy, hub_angle)
 
         neighbors = record['neighbors'][cat]
         n = len(neighbors)
-        # Leaf angular spread (fan outward from hub)
-        # leaf sector: +/- 55 degrees from outward radial direction
-        fan_deg = 55
-        fan = math.radians(fan_deg)
+        fan = math.radians(FAN_DEG)
         for i, nb in enumerate(neighbors):
             if n == 1:
                 offset_angle = 0
             else:
-                # evenly spaced within [-fan, +fan]
                 offset_angle = -fan + 2*fan * i / (n-1)
-            # radial direction from hub outward (away from center)
-            radial_dir = hub_angle
-            final_angle = radial_dir + offset_angle
-            # alternating radius to reduce label overlap
-            r = R_LEAF + (i % 3) * 0.35
+            final_angle = hub_angle + offset_angle
+            # 엇갈린 반지름으로 겹침 방지 (3단계)
+            r = R_LEAF_BASE + (i % 3) * R_LEAF_STAGGER
             lx = hx + r * math.cos(final_angle)
             ly = hy + r * math.sin(final_angle)
             leaf_pos[(cat, i)] = (lx, ly)
@@ -193,33 +213,52 @@ def draw_record_plotly(record):
             ))
 
     # ── Leaf nodes per category ──
-    # 노드: 카테고리 색 + 검은 테두리 / 라벨: 노드 아래 검은 텍스트
+    # 각 노드마다 라벨 위치를 바깥쪽(방사형)으로 개별 지정해 겹침 최소화
     for cat in cats_present:
         items = [(key, m) for key, m in leaf_meta.items() if key[0] == cat]
         if not items: continue
-        xs, ys, labels, sizes, hovers = [], [], [], [], []
+
+        # 같은 카테고리라도 각 노드마다 위치가 다르므로 개별 trace
+        # (plotly는 trace 단위로 textposition 설정이 가능하므로 한 카테고리를 여러 trace로 분리)
+        pos_groups = {}  # textposition → list of (x, y, label, size, hover)
         for key, m in items:
             x, y = leaf_pos[key]
-            xs.append(x); ys.append(y)
+            # 노드에서 '중심에서 바깥쪽' 방향 계산
+            angle_from_center = math.atan2(y, x)
+            tp = _label_position_for_angle(angle_from_center)
+
             lab = m['label']
-            labels.append(lab if len(lab) <= 18 else lab[:16] + '…')
-            sizes.append(min(18 + 4 * math.sqrt(m['freq']), 40))
-            hovers.append(
+            label_short = lab if len(lab) <= 18 else lab[:16] + '…'
+            size = min(18 + 4 * math.sqrt(m['freq']), 40)
+            hover = (
                 f"<b>{m['label']}</b><br>"
                 f"카테고리: <b>{cat}</b><br>"
                 f"관계: <b>{m['rel']}</b> → {target}<br>"
                 f"빈도: {m['freq']} | 논문: {m['papers']}편"
             )
-        traces.append(go.Scatter(
-            x=xs, y=ys, mode='markers+text',
-            marker=dict(size=sizes, color=CATEGORY_COLORS[cat],
-                        line=dict(color='#1B2631', width=1.5)),
-            text=labels,
-            textposition='top center',
-            textfont=dict(color='#1B2631', size=10, family='Arial'),
-            hovertext=hovers, hoverinfo='text',
-            name=f'● {cat}',
-        ))
+            pos_groups.setdefault(tp, []).append((x, y, label_short, size, hover))
+
+        # 카테고리 범례에 한 번만 나타나게 첫 그룹에만 showlegend=True
+        first = True
+        for tp, group in pos_groups.items():
+            xs = [g[0] for g in group]
+            ys = [g[1] for g in group]
+            labels = [g[2] for g in group]
+            sizes = [g[3] for g in group]
+            hovers = [g[4] for g in group]
+            traces.append(go.Scatter(
+                x=xs, y=ys, mode='markers+text',
+                marker=dict(size=sizes, color=CATEGORY_COLORS[cat],
+                            line=dict(color='#1B2631', width=1.5)),
+                text=labels,
+                textposition=tp,
+                textfont=dict(color='#1B2631', size=10, family='Arial'),
+                hovertext=hovers, hoverinfo='text',
+                name=f'● {cat}' if first else None,
+                showlegend=first,
+                legendgroup=cat,
+            ))
+            first = False
 
     # ── Category hubs: 흰 배경 + 두꺼운 카테고리 색 테두리, 검은 텍스트 ──
     for cat, (hx, hy, _) in hub_pos.items():
@@ -263,9 +302,9 @@ def draw_record_plotly(record):
             itemsizing='constant',
         ),
         xaxis=dict(showgrid=False, zeroline=False, showticklabels=False,
-                   range=[-6.2, 6.2], fixedrange=False),
+                   range=[-8, 8], fixedrange=False),
         yaxis=dict(showgrid=False, zeroline=False, showticklabels=False,
-                   range=[-6.2, 6.2], scaleanchor='x', scaleratio=1,
+                   range=[-8, 8], scaleanchor='x', scaleratio=1,
                    fixedrange=False),
         plot_bgcolor='#FFFFFF',
         paper_bgcolor='#FFFFFF',
