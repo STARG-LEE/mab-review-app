@@ -228,7 +228,7 @@ def draw_record_plotly(record):
             tp = _label_position_for_angle(angle_from_center)
 
             lab = m['label']
-            label_short = lab if len(lab) <= 18 else lab[:16] + '…'
+            label_short = lab   # 전체 텍스트 그대로 노출
             size = min(18 + 4 * math.sqrt(m['freq']), 40)
             hover = (
                 f"<b>{m['label']}</b><br>"
@@ -276,13 +276,12 @@ def draw_record_plotly(record):
             showlegend=False,
         ))
 
-    # ── Target at center: 노란 배경 + 검은 테두리 + 검은 텍스트 ──
-    target_label = target if len(target) <= 18 else target[:16] + '…'
+    # ── Target at center: 노란 배경 + 검은 테두리 + 검은 텍스트 (전체 이름 노출) ──
     traces.append(go.Scatter(
         x=[0], y=[0], mode='markers+text',
         marker=dict(size=90, color='#FCD434',
                     line=dict(color='#1B2631', width=4)),
-        text=[f"<b>🎯<br>{target_label}</b>"],
+        text=[f"<b>🎯<br>{target}</b>"],
         textposition='middle center',
         textfont=dict(color='#1B2631', size=12, family='Arial Black'),
         hovertext=[f"<b>🎯 TARGET</b><br>{target}"],
@@ -302,10 +301,10 @@ def draw_record_plotly(record):
             itemsizing='constant',
         ),
         xaxis=dict(showgrid=False, zeroline=False, showticklabels=False,
-                   range=[-9, 9], fixedrange=False,
+                   range=[-12, 12], fixedrange=False,
                    constrain='domain'),
         yaxis=dict(showgrid=False, zeroline=False, showticklabels=False,
-                   range=[-9, 9], scaleanchor='x', scaleratio=1,
+                   range=[-12, 12], scaleanchor='x', scaleratio=1,
                    fixedrange=False,
                    constrain='domain'),
         plot_bgcolor='#FFFFFF',
