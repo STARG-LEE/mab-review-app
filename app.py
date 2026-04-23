@@ -313,6 +313,7 @@ def draw_record_plotly(record):
         margin=dict(l=5, r=5, t=10, b=60),
         height=680, hovermode='closest',
         font=dict(color='#2C3E50'),
+        dragmode='pan',                # 드래그는 화면 이동 (box-zoom 아님)
     )
     return fig
 
@@ -498,7 +499,15 @@ def render_graph(height=None):
     fig = draw_record_plotly(record)
     if height:
         fig.update_layout(height=height)
-    st.plotly_chart(fig, use_container_width=True, config={'displayModeBar': True, 'scrollZoom': True})
+    st.plotly_chart(fig, use_container_width=True, config={
+        'displayModeBar': True,
+        'scrollZoom': True,        # 마우스 휠로 확대/축소
+        'modeBarButtonsToRemove': [
+            'zoom2d', 'select2d', 'lasso2d', 'autoScale2d',
+            'hoverClosestCartesian', 'hoverCompareCartesian',
+        ],
+        'displaylogo': False,
+    })
 
     with st.expander("📋 이웃 노드 전체 리스트"):
         for cat in CATEGORY_ORDER:
