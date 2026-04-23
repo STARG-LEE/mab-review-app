@@ -113,85 +113,96 @@ def save_review(sample_id, reviewer, verdict, feedback):
 
 # ─── Interactive Plotly graph ───
 def draw_record_plotly(record):
-    """Clean interactive plotly graph: target center, neighbors clustered by category."""
+    """Hub-and-spoke layout: target center, category hubs, neighbors around each hub."""
     target = record['target']
     cats_present = [c for c in CATEGORY_ORDER if record['neighbors'].get(c)]
     n_cats = len(cats_present)
 
-    # ── Layout: 각 카테고리별로 clear sector 할당, 노드는 그 안에서 정렬 ──
-    pos = {target: (0.0, 0.0)}
-    meta = {target: {'cat': 'TARGET', 'label': target}}
+    # ── Layout calculation ──
+    # Use a wider x-axis because legend sits to the right
+    R_HUB = 3.5           # category hub radius
+    R_LEAF = 1.9          # leaf node radius around hub
 
-    R_CLUSTER = 3.2
-    CLUSTER_RADIUS = 1.1
+    hub_pos = {}
+    leaf_pos = {}
+    leaf_meta = {}
 
     for c_idx, cat in enumerate(cats_present):
-        neighbors = record['neighbors'][cat]
-        # Cluster center
-        cat_angle = 2 * math.pi * c_idx / n_cats - math.pi / 2
-        cx, cy = R_CLUSTER * math.cos(cat_angle), R_CLUSTER * math.sin(cat_angle)
+        # Hub position (evenly distributed on circle)
+        hub_angle = 2 * math.pi * c_idx / n_cats - math.pi / 2
+        hx, hy = R_HUB * math.cos(hub_angle), R_HUB * math.sin(hub_angle)
+        hub_pos[cat] = (hx, hy, hub_angle)
 
+        neighbors = record['neighbors'][cat]
         n = len(neighbors)
+        # Leaf angular spread (fan outward from hub)
+        # leaf sector: +/- 55 degrees from outward radial direction
+        fan_deg = 55
+        fan = math.radians(fan_deg)
         for i, nb in enumerate(neighbors):
-            # Place around cluster center in small circle
             if n == 1:
-                x, y = cx, cy
+                offset_angle = 0
             else:
-                a = 2 * math.pi * i / n
-                x = cx + CLUSTER_RADIUS * math.cos(a)
-                y = cy + CLUSTER_RADIUS * math.sin(a)
-            nid = f"{cat}::{i}::{nb['node']}"
-            pos[nid] = (x, y)
-            meta[nid] = {
-                'cat': cat, 'label': nb['node'], 'rel': nb['relationship'],
+                # evenly spaced within [-fan, +fan]
+                offset_angle = -fan + 2*fan * i / (n-1)
+            # radial direction from hub outward (away from center)
+            radial_dir = hub_angle
+            final_angle = radial_dir + offset_angle
+            # alternating radius to reduce label overlap
+            r = R_LEAF + (i % 3) * 0.35
+            lx = hx + r * math.cos(final_angle)
+            ly = hy + r * math.sin(final_angle)
+            leaf_pos[(cat, i)] = (lx, ly)
+            leaf_meta[(cat, i)] = {
+                'label': nb['node'], 'rel': nb['relationship'],
                 'freq': nb['frequency'], 'papers': nb['num_papers'],
             }
 
-    # ── Edges (grouped by relation polarity) ──
     traces = []
+
+    # ── Edges: target → hub (thick) + hub → leaf (thin) ──
+    # Target to each hub
+    for cat, (hx, hy, _) in hub_pos.items():
+        traces.append(go.Scatter(
+            x=[0, hx, None], y=[0, hy, None], mode='lines',
+            line=dict(color='#AEB6BF', width=1.5, dash='dot'),
+            hoverinfo='skip', showlegend=False,
+        ))
+
+    # Hub to leaf, colored by relation polarity
     grp_style = {
-        'positive': ('#27AE60', '긍정 효과 (stabilizes·inhibits·prevents·decreases·shields)'),
-        'negative': ('#C0392B', '부정 효과 (promotes·increases·induces·destabilizes 등)'),
-        'neutral':  ('#85929E', '중립 (modifies·correlates·binds·requires)'),
+        'positive': ('#27AE60', '긍정 효과'),
+        'negative': ('#C0392B', '부정 효과'),
+        'neutral':  ('#85929E', '중립 관계'),
     }
+    edge_by_grp = {'positive': [[], []], 'negative': [[], []], 'neutral': [[], []]}
+    for (cat, i), m in leaf_meta.items():
+        grp = RELATION_GROUP.get(m['rel'], 'neutral')
+        hx, hy, _ = hub_pos[cat]
+        lx, ly = leaf_pos[(cat, i)]
+        edge_by_grp[grp][0] += [hx, lx, None]
+        edge_by_grp[grp][1] += [hy, ly, None]
+
     for grp, (color, name) in grp_style.items():
-        xs, ys = [], []
-        for nid, m in meta.items():
-            if nid == target: continue
-            if RELATION_GROUP.get(m['rel'], 'neutral') != grp: continue
-            x1, y1 = pos[nid]
-            xs += [x1, 0.0, None]
-            ys += [y1, 0.0, None]
+        xs, ys = edge_by_grp[grp]
         if xs:
             traces.append(go.Scatter(
                 x=xs, y=ys, mode='lines',
-                line=dict(color=color, width=1.8),
-                hoverinfo='skip', name=name, opacity=0.45,
+                line=dict(color=color, width=1.6),
+                hoverinfo='skip', name=name, opacity=0.55,
             ))
 
-    # ── Target node ──
-    traces.append(go.Scatter(
-        x=[0], y=[0], mode='markers+text',
-        marker=dict(size=68, color='#1B4F72', line=dict(color='#FCD434', width=4), symbol='circle'),
-        text=[f"<b>{target}</b>"],
-        textposition='middle center',
-        textfont=dict(color='#FFFFFF', size=13),
-        hovertext=[f"<b>🎯 TARGET</b><br>{target}"],
-        hoverinfo='text',
-        name=f'🎯 {target}',
-    ))
-
-    # ── Neighbor nodes per category ──
+    # ── Leaf nodes per category (with labels visible) ──
     for cat in cats_present:
-        items = [(nid, m) for nid, m in meta.items() if m.get('cat') == cat and nid != target]
+        items = [(key, m) for key, m in leaf_meta.items() if key[0] == cat]
         if not items: continue
-        xs, ys, labels, sizes, hovers = [], [], [], [], []
-        for nid, m in items:
-            x, y = pos[nid]
+        xs, ys, labels, sizes, hovers, lab_positions = [], [], [], [], [], []
+        for key, m in items:
+            x, y = leaf_pos[key]
             xs.append(x); ys.append(y)
             lab = m['label']
-            labels.append(lab if len(lab) <= 22 else lab[:20] + '…')
-            sizes.append(min(22 + 5 * math.sqrt(m['freq']), 50))
+            labels.append(lab if len(lab) <= 18 else lab[:16] + '…')
+            sizes.append(min(18 + 4 * math.sqrt(m['freq']), 40))
             hovers.append(
                 f"<b>{m['label']}</b><br>"
                 f"카테고리: <b>{cat}</b><br>"
@@ -203,29 +214,62 @@ def draw_record_plotly(record):
             marker=dict(size=sizes, color=CATEGORY_COLORS[cat],
                         line=dict(color='white', width=2)),
             text=labels,
-            textposition='bottom center',
-            textfont=dict(color='#1B2631', size=10, family='Arial'),
+            textposition='top center',
+            textfont=dict(color='#1B2631', size=9),
             hovertext=hovers, hoverinfo='text',
             name=f'● {cat}',
         ))
+
+    # ── Category hubs (labeled with cat name) ──
+    hub_xs, hub_ys, hub_labels, hub_colors, hub_hovers = [], [], [], [], []
+    for cat, (hx, hy, _) in hub_pos.items():
+        hub_xs.append(hx); hub_ys.append(hy)
+        hub_labels.append(cat)
+        hub_colors.append(CATEGORY_COLORS[cat])
+        hub_hovers.append(f"<b>{cat}</b> ({len(record['neighbors'][cat])}개 이웃)")
+    traces.append(go.Scatter(
+        x=hub_xs, y=hub_ys, mode='markers+text',
+        marker=dict(size=42, color=hub_colors, line=dict(color='#2C3E50', width=2)),
+        text=[f"<b>{c}</b>" for c in hub_labels],
+        textposition='middle center',
+        textfont=dict(color='#FFFFFF', size=10),
+        hovertext=hub_hovers, hoverinfo='text',
+        showlegend=False,
+    ))
+
+    # ── Target at center ──
+    traces.append(go.Scatter(
+        x=[0], y=[0], mode='markers+text',
+        marker=dict(size=75, color='#1B4F72',
+                    line=dict(color='#FCD434', width=4)),
+        text=[f"<b>🎯<br>{target[:18]}</b>"],
+        textposition='middle center',
+        textfont=dict(color='#FFFFFF', size=11),
+        hovertext=[f"<b>🎯 TARGET</b><br>{target}"],
+        hoverinfo='text',
+        name=f'🎯 {target}',
+    ))
 
     fig = go.Figure(data=traces)
     fig.update_layout(
         showlegend=True,
         legend=dict(
-            orientation='v', yanchor='top', y=1, xanchor='left', x=1.02,
-            bgcolor='rgba(255,255,255,0.95)', bordercolor='#BDC3C7', borderwidth=1,
+            orientation='h',
+            yanchor='top', y=-0.02, xanchor='center', x=0.5,
+            bgcolor='rgba(255,255,255,0.95)',
+            bordercolor='#BDC3C7', borderwidth=1,
             font=dict(size=10, color='#2C3E50'),
             itemsizing='constant',
         ),
         xaxis=dict(showgrid=False, zeroline=False, showticklabels=False,
-                   range=[-5.2, 5.2]),
+                   range=[-6.2, 6.2], fixedrange=False),
         yaxis=dict(showgrid=False, zeroline=False, showticklabels=False,
-                   range=[-5.2, 5.2], scaleanchor='x', scaleratio=1),
+                   range=[-6.2, 6.2], scaleanchor='x', scaleratio=1,
+                   fixedrange=False),
         plot_bgcolor='#FFFFFF',
         paper_bgcolor='#FFFFFF',
-        margin=dict(l=10, r=10, t=20, b=10),
-        height=640, hovermode='closest',
+        margin=dict(l=5, r=5, t=10, b=60),
+        height=680, hovermode='closest',
         font=dict(color='#2C3E50'),
     )
     return fig
