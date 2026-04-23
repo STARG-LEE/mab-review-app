@@ -192,11 +192,12 @@ def draw_record_plotly(record):
                 hoverinfo='skip', name=name, opacity=0.55,
             ))
 
-    # ── Leaf nodes per category (with labels visible) ──
+    # ── Leaf nodes per category ──
+    # 노드: 카테고리 색 + 검은 테두리 / 라벨: 노드 아래 검은 텍스트
     for cat in cats_present:
         items = [(key, m) for key, m in leaf_meta.items() if key[0] == cat]
         if not items: continue
-        xs, ys, labels, sizes, hovers, lab_positions = [], [], [], [], [], []
+        xs, ys, labels, sizes, hovers = [], [], [], [], []
         for key, m in items:
             x, y = leaf_pos[key]
             xs.append(x); ys.append(y)
@@ -212,39 +213,39 @@ def draw_record_plotly(record):
         traces.append(go.Scatter(
             x=xs, y=ys, mode='markers+text',
             marker=dict(size=sizes, color=CATEGORY_COLORS[cat],
-                        line=dict(color='white', width=2)),
+                        line=dict(color='#1B2631', width=1.5)),
             text=labels,
             textposition='top center',
-            textfont=dict(color='#1B2631', size=9),
+            textfont=dict(color='#1B2631', size=10, family='Arial'),
             hovertext=hovers, hoverinfo='text',
             name=f'● {cat}',
         ))
 
-    # ── Category hubs (labeled with cat name) ──
-    hub_xs, hub_ys, hub_labels, hub_colors, hub_hovers = [], [], [], [], []
+    # ── Category hubs: 흰 배경 + 두꺼운 카테고리 색 테두리, 검은 텍스트 ──
     for cat, (hx, hy, _) in hub_pos.items():
-        hub_xs.append(hx); hub_ys.append(hy)
-        hub_labels.append(cat)
-        hub_colors.append(CATEGORY_COLORS[cat])
-        hub_hovers.append(f"<b>{cat}</b> ({len(record['neighbors'][cat])}개 이웃)")
-    traces.append(go.Scatter(
-        x=hub_xs, y=hub_ys, mode='markers+text',
-        marker=dict(size=42, color=hub_colors, line=dict(color='#2C3E50', width=2)),
-        text=[f"<b>{c}</b>" for c in hub_labels],
-        textposition='middle center',
-        textfont=dict(color='#FFFFFF', size=10),
-        hovertext=hub_hovers, hoverinfo='text',
-        showlegend=False,
-    ))
+        cat_color = CATEGORY_COLORS[cat]
+        n_nb = len(record['neighbors'][cat])
+        traces.append(go.Scatter(
+            x=[hx], y=[hy], mode='markers+text',
+            marker=dict(size=55, color='#FFFFFF',
+                        line=dict(color=cat_color, width=4)),
+            text=[f"<b>{cat}</b>"],
+            textposition='middle center',
+            textfont=dict(color='#1B2631', size=11, family='Arial Black'),
+            hovertext=[f"<b>{cat}</b> ({n_nb}개 이웃)"],
+            hoverinfo='text',
+            showlegend=False,
+        ))
 
-    # ── Target at center ──
+    # ── Target at center: 노란 배경 + 검은 테두리 + 검은 텍스트 ──
+    target_label = target if len(target) <= 18 else target[:16] + '…'
     traces.append(go.Scatter(
         x=[0], y=[0], mode='markers+text',
-        marker=dict(size=75, color='#1B4F72',
-                    line=dict(color='#FCD434', width=4)),
-        text=[f"<b>🎯<br>{target[:18]}</b>"],
+        marker=dict(size=90, color='#FCD434',
+                    line=dict(color='#1B2631', width=4)),
+        text=[f"<b>🎯<br>{target_label}</b>"],
         textposition='middle center',
-        textfont=dict(color='#FFFFFF', size=11),
+        textfont=dict(color='#1B2631', size=12, family='Arial Black'),
         hovertext=[f"<b>🎯 TARGET</b><br>{target}"],
         hoverinfo='text',
         name=f'🎯 {target}',
