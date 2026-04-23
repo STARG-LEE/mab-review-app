@@ -302,10 +302,12 @@ def draw_record_plotly(record):
             itemsizing='constant',
         ),
         xaxis=dict(showgrid=False, zeroline=False, showticklabels=False,
-                   range=[-8, 8], fixedrange=False),
+                   range=[-9, 9], fixedrange=False,
+                   constrain='domain'),
         yaxis=dict(showgrid=False, zeroline=False, showticklabels=False,
-                   range=[-8, 8], scaleanchor='x', scaleratio=1,
-                   fixedrange=False),
+                   range=[-9, 9], scaleanchor='x', scaleratio=1,
+                   fixedrange=False,
+                   constrain='domain'),
         plot_bgcolor='#FFFFFF',
         paper_bgcolor='#FFFFFF',
         margin=dict(l=5, r=5, t=10, b=60),
@@ -473,13 +475,30 @@ st.markdown(f"""
 </div>
 """, unsafe_allow_html=True)
 
-# Two-column layout
-col_graph, col_interp = st.columns([1.1, 1])
+# View mode 선택 (그래프 크기 조정)
+view_mode = st.radio(
+    "화면 레이아웃",
+    options=['graph_top', 'side_by_side', 'graph_only'],
+    format_func=lambda x: {
+        'graph_top':    '⬇️ 그래프 크게 + 해석 아래 (기본)',
+        'side_by_side': '📊 나란히 보기',
+        'graph_only':   '🔍 그래프만 크게 (해석 숨김)',
+    }[x],
+    index=0,
+    horizontal=True,
+    key=f"view_mode_{current_sample['sample_id']}",
+)
 
-with col_graph:
+# HTML escape interpretation
+import html as _html
+interp_escaped = _html.escape(current_sample['gpt_interpretation'])
+
+def render_graph(height=None):
     st.subheader("📊 학습 레코드 그래프")
     fig = draw_record_plotly(record)
-    st.plotly_chart(fig, use_container_width=True, config={'displayModeBar': False})
+    if height:
+        fig.update_layout(height=height)
+    st.plotly_chart(fig, use_container_width=True, config={'displayModeBar': True, 'scrollZoom': True})
 
     with st.expander("📋 이웃 노드 전체 리스트"):
         for cat in CATEGORY_ORDER:
@@ -505,16 +524,30 @@ with col_graph:
                     unsafe_allow_html=True
                 )
 
-with col_interp:
+def render_interpretation(max_h=620):
     st.subheader("🤖 GPT-5-mini 해석")
-    # HTML escape the interpretation text to avoid breaking layout
-    import html as _html
-    interp_escaped = _html.escape(current_sample['gpt_interpretation'])
     st.markdown(f"""
-    <div class='custom-block' style='background:#FFFFFF;padding:18px;border-radius:8px;border:1px solid #D5DBDB;border-left:4px solid #3498DB;max-height:620px;overflow-y:auto;box-shadow:0 1px 3px rgba(0,0,0,0.05)'>
+    <div class='custom-block' style='background:#FFFFFF;padding:18px;border-radius:8px;border:1px solid #D5DBDB;border-left:4px solid #3498DB;max-height:{max_h}px;overflow-y:auto;box-shadow:0 1px 3px rgba(0,0,0,0.05)'>
         <pre style='white-space:pre-wrap;font-family:"Apple SD Gothic Neo","Malgun Gothic",sans-serif;font-size:14px;line-height:1.7;margin:0;color:#2C3E50 !important;background:transparent !important'>{interp_escaped}</pre>
     </div>
     """, unsafe_allow_html=True)
+
+
+if view_mode == 'side_by_side':
+    col_graph, col_interp = st.columns([1.5, 1])   # 그래프 더 넓게
+    with col_graph:
+        render_graph(height=720)
+    with col_interp:
+        render_interpretation(max_h=720)
+
+elif view_mode == 'graph_top':
+    # 그래프를 full-width로 크게
+    render_graph(height=850)
+    st.divider()
+    render_interpretation(max_h=500)
+
+else:  # graph_only
+    render_graph(height=1000)
 
 
 st.divider()
